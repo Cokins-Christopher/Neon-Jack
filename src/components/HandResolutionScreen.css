@@ -1,0 +1,100 @@
+.resolution-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+}
+
+.player-results {
+  display: flex;
+  flex-direction: column;
+  gap: 15px;
+  width: 100%;
+  max-width: 600px;
+}
+
+.result-panel {
+  position: relative;
+}
+
+.hand-value-display {
+  text-align: center;
+  font-size: 18px;
+  margin-top: 10px;
+  font-weight: bold;
+}
+
+.result-badge {
+  margin-top: 15px;
+  padding: 15px;
+  text-align: center;
+  font-size: 24px;
+  font-weight: bold;
+  border-radius: 4px;
+}
+
+.result-badge.blackjack_win {
+  background: rgba(0, 255, 0, 0.2);
+  border: 2px solid #00ff00;
+  color: #00ff00;
+  animation: pulse 1s infinite;
+}
+
+.result-badge.win {
+  background: rgba(0, 255, 255, 0.2);
+  border: 2px solid #00ffff;
+  color: #00ffff;
+}
+
+.result-badge.loss {
+  background: rgba(255, 0, 0, 0.2);
+  border: 2px solid #ff0000;
+  color: #ff0000;
+}
+
+.result-badge.push {
+  background: rgba(255, 255, 255, 0.1);
+  border: 2px solid #ffffff;
+  color: #ffffff;
+}
+
+.payout {
+  font-size: 18px;
+  margin-top: 8px;
+  opacity: 0.9;
+}
+
+.total-result {
+  text-align: center;
+  margin-top: 20px;
+}
+
+.total-payout {
+  font-size: 36px;
+  font-weight: bold;
+  margin: 15px 0;
+}
+
+.total-payout.positive {
+  color: #00ff00;
+}
+
+.total-payout.negative {
+  color: #ff0000;
+}
+
+.new-chip-total {
+  font-size: 18px;
+  opacity: 0.8;
+  margin-top: 10px;
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.7; }
+}
+
+.continue-section {
+  margin-top: 20px;
+  text-align: center;
+}

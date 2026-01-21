@@ -1,0 +1,232 @@
+.betting-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 20px;
+}
+
+.betting-info {
+  text-align: center;
+  margin-bottom: 20px;
+  line-height: 2;
+}
+
+.bet-selection {
+  width: 100%;
+  margin: 20px 0;
+}
+
+.bet-label {
+  display: block;
+  margin-bottom: 15px;
+  font-size: 16px;
+  color: #00ffff;
+  text-align: center;
+}
+
+/* Quick Bet Buttons */
+.quick-bet-buttons {
+  display: flex;
+  gap: 15px;
+  justify-content: center;
+  margin-bottom: 25px;
+}
+
+.quick-bet-btn {
+  background: rgba(0, 255, 255, 0.1);
+  border: 2px solid rgba(0, 255, 255, 0.5);
+  color: #00ffff;
+  padding: 12px 24px;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.3s;
+  font-size: 16px;
+  font-weight: bold;
+  font-family: 'Courier New', monospace;
+}
+
+.quick-bet-btn:hover:not(:disabled) {
+  background: rgba(0, 255, 255, 0.2);
+  border-color: #00ffff;
+  box-shadow: 0 0 15px rgba(0, 255, 255, 0.6);
+  transform: translateY(-2px);
+}
+
+.quick-bet-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.min-bet-btn {
+  border-color: rgba(0, 255, 0, 0.5);
+  color: #00ff00;
+}
+
+.min-bet-btn:hover:not(:disabled) {
+  border-color: #00ff00;
+  box-shadow: 0 0 15px rgba(0, 255, 0, 0.6);
+}
+
+.all-in-btn {
+  border-color: rgba(255, 0, 255, 0.5);
+  color: #ff00ff;
+}
+
+.all-in-btn:hover:not(:disabled) {
+  border-color: #ff00ff;
+  box-shadow: 0 0 15px rgba(255, 0, 255, 0.6);
+}
+
+/* Chip Buttons */
+.chip-buttons-container {
+  margin-bottom: 25px;
+}
+
+.chip-label {
+  display: block;
+  text-align: center;
+  font-size: 14px;
+  color: #00ffff;
+  opacity: 0.8;
+  margin-bottom: 15px;
+}
+
+.chip-buttons {
+  display: flex;
+  gap: 15px;
+  justify-content: center;
+  align-items: center;
+}
+
+.chip-btn {
+  width: 70px;
+  height: 70px;
+  border-radius: 50%;
+  border: 3px solid;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  font-size: 18px;
+  font-weight: bold;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-family: 'Courier New', monospace;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.chip-1 {
+  border-color: #ffd700;
+  box-shadow: 0 0 10px rgba(255, 215, 0, 0.4);
+}
+
+.chip-1:hover:not(:disabled) {
+  box-shadow: 0 0 20px rgba(255, 215, 0, 0.8);
+  transform: scale(1.1);
+}
+
+.chip-5 {
+  border-color: #00ff00;
+  box-shadow: 0 0 10px rgba(0, 255, 0, 0.4);
+}
+
+.chip-5:hover:not(:disabled) {
+  box-shadow: 0 0 20px rgba(0, 255, 0, 0.8);
+  transform: scale(1.1);
+}
+
+.chip-25 {
+  border-color: #00ffff;
+  box-shadow: 0 0 10px rgba(0, 255, 255, 0.4);
+}
+
+.chip-25:hover:not(:disabled) {
+  box-shadow: 0 0 20px rgba(0, 255, 255, 0.8);
+  transform: scale(1.1);
+}
+
+.chip-100 {
+  border-color: #ff00ff;
+  box-shadow: 0 0 10px rgba(255, 0, 255, 0.4);
+}
+
+.chip-100:hover:not(:disabled) {
+  box-shadow: 0 0 20px rgba(255, 0, 255, 0.8);
+  transform: scale(1.1);
+}
+
+.chip-btn:disabled {
+  opacity: 0.3;
+  cursor: not-allowed;
+}
+
+/* Chip Animation */
+@keyframes chipPulse {
+  0% {
+    transform: scale(1);
+    box-shadow: 0 0 10px currentColor;
+  }
+  50% {
+    transform: scale(1.3);
+    box-shadow: 0 0 30px currentColor;
+  }
+  100% {
+    transform: scale(1);
+    box-shadow: 0 0 10px currentColor;
+  }
+}
+
+.chip-animate {
+  animation: chipPulse 0.6s ease-out;
+}
+
+.custom-bet {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 20px;
+}
+
+.custom-bet label {
+  font-size: 14px;
+  color: #00ffff;
+  opacity: 0.8;
+}
+
+.bet-input {
+  background: rgba(0, 0, 0, 0.5);
+  border: 2px solid #00ffff;
+  color: #00ffff;
+  padding: 10px;
+  border-radius: 4px;
+  font-size: 18px;
+  font-weight: bold;
+  text-align: center;
+  width: 150px;
+  font-family: 'Courier New', monospace;
+}
+
+.bet-input:focus {
+  outline: none;
+  box-shadow: 0 0 15px rgba(0, 255, 255, 0.5);
+}
+
+.bet-amount-display {
+  text-align: center;
+  font-size: 24px;
+  margin: 20px 0;
+}
+
+.betting-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  width: 100%;
+}
+
+.warning-message {
+  text-align: center;
+  font-weight: bold;
+}

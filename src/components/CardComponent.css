@@ -1,0 +1,48 @@
+.card-pattern {
+  font-size: 48px;
+  opacity: 0.5;
+}
+
+.card-glitch {
+  background: linear-gradient(135deg, #1a0a2e 0%, #16213e 100%);
+  border-color: #ff00ff;
+  box-shadow: 
+    0 0 15px rgba(255, 0, 255, 0.8),
+    inset 0 0 15px rgba(255, 0, 255, 0.3);
+  animation: glitch-pulse 2s infinite;
+}
+
+.card-glitch .card-rank,
+.card-glitch .card-suit {
+  color: #ff00ff;
+  text-shadow: 
+    0 0 10px #ff00ff,
+    0 0 20px #ff00ff;
+}
+
+.card-glitch-label {
+  position: absolute;
+  bottom: 5px;
+  left: 0;
+  right: 0;
+  font-size: 8px;
+  color: #ff00ff;
+  text-align: center;
+  font-weight: bold;
+  text-transform: uppercase;
+  letter-spacing: 1px;
+  opacity: 0.8;
+}
+
+@keyframes glitch-pulse {
+  0%, 100% { 
+    box-shadow: 
+      0 0 15px rgba(255, 0, 255, 0.8),
+      inset 0 0 15px rgba(255, 0, 255, 0.3);
+  }
+  50% { 
+    box-shadow: 
+      0 0 25px rgba(255, 0, 255, 1),
+      inset 0 0 25px rgba(255, 0, 255, 0.5);
+  }
+}

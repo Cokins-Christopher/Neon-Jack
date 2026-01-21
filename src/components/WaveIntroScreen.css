@@ -1,0 +1,51 @@
+.wave-intro-content {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 30px;
+}
+
+.dealer-name {
+  font-size: 32px;
+  margin-bottom: 10px;
+  text-align: center;
+}
+
+.dealer-description {
+  font-size: 16px;
+  opacity: 0.8;
+  margin-bottom: 20px;
+  text-align: center;
+}
+
+.abilities {
+  margin-top: 20px;
+  padding-top: 20px;
+  border-top: 1px solid rgba(0, 255, 255, 0.3);
+}
+
+.abilities-title {
+  font-size: 18px;
+  margin-bottom: 10px;
+  color: #00ffff;
+}
+
+.ability {
+  margin: 8px 0;
+  font-size: 14px;
+}
+
+.ability-name {
+  color: #ff00ff;
+  font-weight: bold;
+}
+
+.ability-desc {
+  opacity: 0.8;
+}
+
+.wave-stats {
+  display: flex;
+  gap: 20px;
+  justify-content: center;
+}
