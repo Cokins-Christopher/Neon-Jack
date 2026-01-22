@@ -1,9 +1,11 @@
-import { GameState, GameRun, Hand, Card, HandResult, Dealer, RunConfig, RunMode } from '../types';
+import { GameState, GameRun, Hand, Card, HandResult, Dealer, RunConfig, RunMode, ShopItem } from '../types';
 import { createStandardDeck, shuffleDeck, drawCard, burnCard } from './shoe';
 import { getHandValue, isBust, resolveHand, calculatePayout, canSplit } from './blackjack';
 import { getDealerForWave } from './dealers';
-import { SHOE_HACKS } from './shoeHacks';
-import { ACTION_CARDS } from './actionCards';
+import { SHOE_HACKS, getShoeHack, getHackCost } from './shoeHacks';
+import { ACTION_CARDS, getActionCard } from './actionCards';
+import { generateShopItems } from './shop';
+import { SeededRNG } from './rng';
 
 export interface GameStateMachine {
   state: GameState;
@@ -26,6 +28,15 @@ export interface GameStateMachine {
   allCardsHidden?: boolean;
   noSplit?: boolean;
   startWithOneCard?: boolean;
+  // Action card effects
+  firewallActive?: boolean; // Firewall prevents bust once
+  peekedNextCard?: Card | null; // Double Vision: revealed next card in shoe
+  insuranceActive?: boolean; // Insurance: get bet back if dealer has blackjack
+  extraHitAvailable?: boolean; // Extra Hit: one free hit that doesn't count against limit
+  glitchHitActive?: boolean; // Glitch Hit: next hit draws two cards, choose one
+  glitchHitCards?: [Card, Card] | null; // Glitch Hit: the two cards to choose from
+  swapActive?: boolean; // Swap: player can swap one of their cards with dealer upcard
+  selectedPlayerCardIndex?: number | null; // Swap: which player card is selected (-1 = none selected)
 }
 
 const STARTING_CHIPS = 100;
@@ -98,13 +109,23 @@ export function createInitialState(): GameStateMachine {
     allCardsHidden: false,
     noSplit: false,
     startWithOneCard: false,
+    firewallActive: false,
+    peekedNextCard: null,
+    insuranceActive: false,
+    extraHitAvailable: false,
+    glitchHitActive: false,
+    glitchHitCards: null,
+    swapActive: false,
+    selectedPlayerCardIndex: null,
   };
 }
 
 // Phase 2: Updated to accept RunConfig
+// Roguelike Shop System: Initialize new fields
 export function startNewRun(state: GameStateMachine, config: RunConfig): GameStateMachine {
   const initialShoe = shuffleDeck(createStandardDeck());
   const startingChips = Math.floor(STARTING_CHIPS * config.difficultyMultiplier);
+  const seed = Date.now(); // Use timestamp as seed
   
   return {
     ...state,
@@ -116,10 +137,20 @@ export function startNewRun(state: GameStateMachine, config: RunConfig): GameSta
       score: 0,
       currentBet: 0,
       shoe: initialShoe,
-      shoeHacks: SHOE_HACKS.map(h => ({ ...h, purchased: false })),
-      actionCards: ACTION_CARDS.map(c => ({ ...c, used: false })),
+      shoeHacks: SHOE_HACKS.map(h => ({ ...h, purchased: false })), // Legacy
+      actionCards: ACTION_CARDS.map(c => ({ ...c, used: false })), // Legacy
       usedActionCardsThisHand: new Set(),
       config,
+      // Roguelike Shop System
+      seed,
+      shopIndex: 0,
+      shop: { items: [], rerollsUsed: 0 },
+      ownedShoeHacks: {},
+      actionDeck: [],
+      actionHand: [],
+      actionDiscard: [],
+      actionDrawCount: 3,
+      actionCardsUsedThisHand: 0,
     },
     currentDealer: getDealerForWave(1, config.mode, config.ascensionLevel),
     playerHands: [],
@@ -145,6 +176,14 @@ export function startNewRun(state: GameStateMachine, config: RunConfig): GameSta
     allCardsHidden: false,
     noSplit: false,
     startWithOneCard: false,
+    firewallActive: false,
+    peekedNextCard: null,
+    insuranceActive: false,
+    extraHitAvailable: false,
+    glitchHitActive: false,
+    glitchHitCards: null,
+    swapActive: false,
+    selectedPlayerCardIndex: null,
   };
 }
 
@@ -299,13 +338,54 @@ export function placeBet(state: GameStateMachine, betAmount?: number): GameState
     allCardsHidden: allCardsHidden || false,
     noSplit: noSplit || false,
     startWithOneCard: startWithOneCard || false,
+    firewallActive: false, // Reset firewall for new hand
+    peekedNextCard: null, // Reset peeked card for new hand
+    insuranceActive: false, // Reset insurance for new hand
+    extraHitAvailable: false, // Reset extra hit for new hand
+    glitchHitActive: false, // Reset glitch hit for new hand
   };
 }
 
+// Roguelike Shop System: Rebuild shoe from owned hacks
+function rebuildShoeWithHacks(state: GameStateMachine): Card[] {
+  let shoe = createStandardDeck();
+  
+  // Apply all owned hacks in sorted order (by id for consistency)
+  const hackIds = Object.keys(state.run.ownedShoeHacks).sort();
+  for (const hackId of hackIds) {
+    const hack = getShoeHack(hackId);
+    if (hack) {
+      const stacks = state.run.ownedShoeHacks[hackId].stacks;
+      shoe = hack.effect(shoe, stacks);
+    }
+  }
+  
+  return shuffleDeck(shoe);
+}
+
 // Phase 2: Updated to handle boss abilities
+// Roguelike Shop System: Draw action cards and rebuild shoe
 export function dealInitialHands(state: GameStateMachine): GameStateMachine {
-  const shoe = [...state.run.shoe];
+  // Rebuild shoe with owned hacks
+  const shoe = rebuildShoeWithHacks(state);
   const dealer = state.currentDealer!;
+  
+  // Draw action cards for this hand
+  let actionDeck = [...state.run.actionDeck];
+  let actionDiscard = [...state.run.actionDiscard];
+  const actionHand: string[] = [];
+  const drawCount = state.run.actionDrawCount;
+  
+  for (let i = 0; i < drawCount && actionDeck.length > 0; i++) {
+    actionHand.push(actionDeck.shift()!);
+  }
+  
+  // If deck empty, shuffle discard back
+  if (actionDeck.length === 0 && actionDiscard.length > 0) {
+    const rng = new SeededRNG(state.run.seed + state.run.wave * 100);
+    actionDeck = rng.shuffle([...actionDiscard]);
+    actionDiscard = []; // Clear discard pile after shuffling it back
+  }
   
   // Phase 2: Check for PLAYER_STARTS_WITH_ONE_CARD ability
   const startWithOneCard = dealer.abilities.some(a => a.id === 'PLAYER_STARTS_WITH_ONE_CARD');
@@ -328,9 +408,18 @@ export function dealInitialHands(state: GameStateMachine): GameStateMachine {
     run: {
       ...state.run,
       shoe,
+      actionHand,
+      actionDeck, // Update with new deck (either drawn from or shuffled from discard)
+      actionDiscard, // Update with cleared discard if we shuffled
+      actionCardsUsedThisHand: 0, // Reset action card usage for new hand
     },
     playerHands: [playerHand],
     dealerHand,
+    firewallActive: false, // Reset firewall for new hand
+    peekedNextCard: null, // Reset peeked card for new hand
+    insuranceActive: false, // Reset insurance for new hand
+    extraHitAvailable: false, // Reset extra hit for new hand
+    glitchHitActive: false, // Reset glitch hit for new hand
   };
 }
 
@@ -353,15 +442,46 @@ export function playerHit(state: GameStateMachine, handIndex: number = 0): GameS
     }
   }
   
-  const newCard = drawCard(shoe);
+  // Glitch Hit: Draw two cards, store them for player to choose
+  let newCard: Card | null = null;
+  let peekedNextCard: Card | null = null;
+  let glitchHitActive: boolean | undefined = state.glitchHitActive;
+  let glitchHitCards: [Card, Card] | null = null;
+  
+  if (state.glitchHitActive) {
+    // Draw two cards and store them - player will choose which one to keep
+    const card1 = drawCard(shoe);
+    const card2 = drawCard(shoe);
+    if (card1 && card2) {
+      glitchHitCards = [card1, card2];
+      // Don't add card to hand yet - wait for player to choose
+      glitchHitActive = false; // Clear flag, but keep cards in state
+    }
+  } else if (state.peekedNextCard) {
+    // Double Vision: Use the peeked card
+    newCard = state.peekedNextCard;
+    // Remove it from shoe (it's the first card)
+    shoe.shift();
+    // Add to burned cards (removed permanently)
+    burnedCards.push(newCard);
+    peekedNextCard = null; // Clear the peeked card
+  } else {
+    // Normal draw
+    newCard = drawCard(shoe);
+  }
+  
   if (newCard) {
     hand.cards = [...hand.cards, newCard];
     playerHands[handIndex] = hand;
   }
   
   // Ace splits allow unlimited hits, so don't increment hit count for them
+  // Extra Hit doesn't count against limit
   const isAceSplit = hand.isAceSplit;
-  const newHitCount = isAceSplit ? state.hitCount : state.hitCount + 1;
+  const isExtraHit = state.extraHitAvailable;
+  const newHitCount = isAceSplit || isExtraHit ? state.hitCount : state.hitCount + 1;
+  const extraHitAvailable = isExtraHit ? false : state.extraHitAvailable; // Clear after use
+  
   const canStandNow = state.currentDealer?.abilities.some(a => a.id === 'FORCED_HIT_UNDER_12')
     ? getHandValue(hand) >= 12
     : true;
@@ -377,6 +497,10 @@ export function playerHit(state: GameStateMachine, handIndex: number = 0): GameS
     canStand: canStandNow,
     burnedCards,
     lastBurnedCard, // Show the burned card in UI
+    peekedNextCard, // Clear if used, keep if not
+    extraHitAvailable, // Clear if used
+    glitchHitActive, // Clear if used
+    glitchHitCards, // Store cards for player to choose
   };
 }
 
@@ -546,9 +670,39 @@ export function resolveHandResults(state: GameStateMachine): GameStateMachine {
   const blackjackPays1To1 = dealer.abilities.some(a => a.id === 'BLACKJACK_PAYS_1_TO_1');
   
   for (const playerHand of state.playerHands) {
-    const result = resolveHand(playerHand, state.dealerHand, dealerWinsOn22);
-    const payout = calculatePayout(result, state.run.currentBet, blackjackPays1To1);
-    totalPayout += payout;
+    const playerValue = getHandValue(playerHand);
+    let result: HandResult;
+    let handPayout = 0;
+    
+    // FIREWALL: If player would bust and firewall is active, treat as 21 instead
+    if (playerValue > 21 && state.firewallActive) {
+      // Firewall prevents bust - treat as 21 (blackjack win if dealer doesn't have 21)
+      const dealerValue = getHandValue(state.dealerHand);
+      if (dealerValue === 21) {
+        result = 'push'; // Both have 21
+      } else {
+        result = 'blackjack_win'; // Player has 21, dealer doesn't
+      }
+    } else {
+      // Normal resolution
+      result = resolveHand(playerHand, state.dealerHand, dealerWinsOn22);
+    }
+    
+    // INSURANCE: If dealer has blackjack, get bet back
+    if (state.insuranceActive && result === 'loss') {
+      const dealerValue = getHandValue(state.dealerHand);
+      const playerValue = getHandValue(playerHand);
+      // Check if dealer has blackjack (21 with 2 cards)
+      if (dealerValue === 21 && state.dealerHand.cards.length === 2) {
+        handPayout = state.run.currentBet; // Get bet back
+      } else {
+        handPayout = calculatePayout(result, state.run.currentBet, blackjackPays1To1);
+      }
+    } else {
+      handPayout = calculatePayout(result, state.run.currentBet, blackjackPays1To1);
+    }
+    
+    totalPayout += handPayout;
     if (result === 'push') {
       hasPush = true;
     }
@@ -560,6 +714,17 @@ export function resolveHandResults(state: GameStateMachine): GameStateMachine {
     }
   }
   
+  // Double Vision: If next card was peeked but not used, remove it from shoe (burn it)
+  let finalBurnedCards = [...state.burnedCards];
+  let finalShoe = [...state.run.shoe];
+  if (state.peekedNextCard) {
+    // Remove the peeked card from shoe (it's the first card)
+    const removedCard = finalShoe.shift();
+    if (removedCard) {
+      finalBurnedCards.push(removedCard);
+    }
+  }
+  
   // Collect all cards from hands to return to shoe (except burned cards)
   const cardsToReturn: Card[] = [];
   for (const hand of state.playerHands) {
@@ -567,8 +732,12 @@ export function resolveHandResults(state: GameStateMachine): GameStateMachine {
   }
   cardsToReturn.push(...state.dealerHand.cards);
   
+  // Roguelike Shop System: Discard action hand
+  const actionDiscard = [...state.run.actionDiscard, ...state.run.actionHand];
+  
   // Return all cards to shoe and reshuffle (burned cards stay removed)
-  const newShoe = [...state.run.shoe, ...cardsToReturn];
+  // Note: Shoe will be rebuilt with hacks on next dealInitialHands
+  const newShoe = [...finalShoe, ...cardsToReturn];
   const shuffledShoe = shuffleDeck(newShoe);
   
   const newChips = state.run.chips + totalPayout;
@@ -600,9 +769,16 @@ export function resolveHandResults(state: GameStateMachine): GameStateMachine {
         chips: newChips,
         score: newScore,
         shoe: shuffledShoe,
+        actionDiscard,
+        actionHand: [],
+        actionCardsUsedThisHand: 0,
       },
-      burnedCards: [],
-    lastBurnedCard: null, // Reset burned cards for next hand
+      burnedCards: finalBurnedCards,
+      lastBurnedCard: null, // Reset burned cards for next hand
+      peekedNextCard: null, // Clear peeked card
+      insuranceActive: false, // Reset insurance
+      extraHitAvailable: false, // Reset extra hit
+      glitchHitActive: false, // Reset glitch hit
     };
   }
   
@@ -618,9 +794,13 @@ export function resolveHandResults(state: GameStateMachine): GameStateMachine {
         chips: newChips,
         score: newWave,
         shoe: shuffledShoe,
+        actionDiscard,
+        actionHand: [],
+        actionCardsUsedThisHand: 0,
       },
-      burnedCards: [],
-    lastBurnedCard: null, // Reset burned cards for next hand
+      burnedCards: finalBurnedCards,
+      lastBurnedCard: null, // Reset burned cards for next hand
+      peekedNextCard: null, // Clear peeked card
     };
   }
   
@@ -634,29 +814,51 @@ export function resolveHandResults(state: GameStateMachine): GameStateMachine {
         chips: newChips, // Bet was returned on push, lost on loss
         currentBet: 0,
         shoe: shuffledShoe,
+        actionDiscard,
+        actionHand: [],
+        actionCardsUsedThisHand: 0,
       },
       playerHands: [],
       dealerHand: { cards: [], isSplit: false, isAceSplit: false },
       dealerHoleCardRevealed: false,
       peekedHoleCard: false,
       hitCount: 0,
-      burnedCards: [],
-    lastBurnedCard: null, // Reset burned cards for next hand
+      burnedCards: finalBurnedCards,
+      lastBurnedCard: null, // Reset burned cards for next hand
       allCardsHidden: false, // Reset for next hand
       noSplit: false,
       startWithOneCard: false,
+      peekedNextCard: null, // Clear peeked card
+      insuranceActive: false, // Reset insurance
+      extraHitAvailable: false, // Reset extra hit
+      glitchHitActive: false, // Reset glitch hit
     };
   }
   
   // Only continue to shop if player won at least one hand
+  // Roguelike Shop System: Generate shop on entry
+  const newShopIndex = state.run.shopIndex + 1;
+  const shopItems = generateShopItems({
+    ...state.run,
+    shopIndex: newShopIndex - 1, // Use previous index for generation
+  });
+  
   return {
     ...state,
     state: 'SHOP',
     run: {
       ...state.run,
+      shopIndex: newShopIndex,
+      shop: {
+        items: shopItems,
+        rerollsUsed: 0,
+      },
       chips: newChips,
       score: newScore,
       shoe: shuffledShoe,
+      actionDiscard,
+      actionHand: [],
+        actionCardsUsedThisHand: 0,
     },
     burnedCards: [],
     lastBurnedCard: null, // Reset burned cards for next hand
@@ -686,6 +888,15 @@ export function proceedToNextWave(state: GameStateMachine): GameStateMachine {
     ? scaledMinBet * 2
     : scaledMinBet;
   
+  // Roguelike Shop System: Rebuild shoe for new wave
+  const rebuiltShoe = rebuildShoeWithHacks({
+    ...state,
+    run: {
+      ...state.run,
+      wave: nextWave,
+    },
+  });
+  
   return {
     ...state,
     state: 'WAVE_INTRO',
@@ -696,6 +907,7 @@ export function proceedToNextWave(state: GameStateMachine): GameStateMachine {
       usedActionCardsThisHand: new Set(),
       // Phase 2: Update score in Survival Mode
       score: config.mode === 'SURVIVAL' ? nextWave : state.run.score,
+      shoe: rebuiltShoe, // Rebuild shoe with all owned hacks
     },
     currentDealer: nextDealer,
     playerHands: [],
@@ -709,6 +921,80 @@ export function proceedToNextWave(state: GameStateMachine): GameStateMachine {
     allCardsHidden: false, // Reset for new wave
     noSplit: false,
     startWithOneCard: false,
+  };
+}
+
+// Roguelike Shop System: Buy shop item
+export function buyShopItem(state: GameStateMachine, itemIndex: number): GameStateMachine {
+  const item = state.run.shop.items[itemIndex];
+  if (!item || item.cost > state.run.chips) {
+    return state;
+  }
+  
+  let newRun = { ...state.run };
+  newRun.chips -= item.cost;
+  
+  if (item.kind === 'SHOE_HACK') {
+    const hack = getShoeHack(item.id);
+    if (!hack) return state;
+    
+    const currentStacks = newRun.ownedShoeHacks[item.id]?.stacks || 0;
+    if (currentStacks >= hack.maxStacks) {
+      return state; // Already maxed
+    }
+    
+    // Add or increment stack
+    newRun.ownedShoeHacks = {
+      ...newRun.ownedShoeHacks,
+      [item.id]: { stacks: currentStacks + 1 },
+    };
+    
+    // Rebuild shoe immediately with new hack
+    const tempState = {
+      ...state,
+      run: newRun,
+    };
+    newRun.shoe = rebuildShoeWithHacks(tempState);
+    
+    // Remove item from shop
+    newRun.shop = {
+      ...newRun.shop,
+      items: newRun.shop.items.filter((_, i) => i !== itemIndex),
+    };
+  } else if (item.kind === 'ACTION_CARD') {
+    // Add to action deck
+    newRun.actionDeck = [...newRun.actionDeck, item.id];
+    
+    // Remove item from shop
+    newRun.shop = {
+      ...newRun.shop,
+      items: newRun.shop.items.filter((_, i) => i !== itemIndex),
+    };
+  } else if (item.kind === 'REROLL_SHOP') {
+    // Reroll shop
+    newRun.shopIndex += 1;
+    newRun.shop = {
+      items: generateShopItems(newRun),
+      rerollsUsed: newRun.shop.rerollsUsed + 1,
+    };
+  } else if (item.kind === 'REMOVE_ACTION_CARD') {
+    // Remove random action card from deck
+    if (newRun.actionDeck.length > 0) {
+      const rng = new SeededRNG(newRun.seed + newRun.shopIndex * 1000 + newRun.shop.rerollsUsed);
+      const indexToRemove = rng.nextInt(0, newRun.actionDeck.length);
+      newRun.actionDeck = newRun.actionDeck.filter((_, i) => i !== indexToRemove);
+    }
+    
+    // Remove item from shop
+    newRun.shop = {
+      ...newRun.shop,
+      items: newRun.shop.items.filter((_, i) => i !== itemIndex),
+    };
+  }
+  
+  return {
+    ...state,
+    run: newRun,
   };
 }
 
@@ -733,6 +1019,232 @@ export function purchaseActionCard(state: GameStateMachine, cardId: string): Gam
       ...state.run,
       chips: state.run.chips - scaledCost,
     },
+  };
+}
+
+// Roguelike Shop System: Use action card
+export function useActionCard(state: GameStateMachine, cardId: string, handIndex: number = 0): GameStateMachine {
+  const card = getActionCard(cardId);
+  if (!card) return state;
+  
+  // Check if card is in hand
+  if (!state.run.actionHand.includes(cardId)) {
+    return state; // Card not in hand
+  }
+  
+  // Check action card limit (2 per hand)
+  if (state.run.actionCardsUsedThisHand >= 2) {
+    return state; // Already used 2 action cards this hand
+  }
+  
+  // Remove card from hand and add to discard
+  const newActionHand = state.run.actionHand.filter(id => id !== cardId);
+  const newActionDiscard = [...state.run.actionDiscard, cardId];
+  
+  // Increment usage counter
+  const newActionCardsUsed = state.run.actionCardsUsedThisHand + 1;
+  
+  // Apply card effect based on type
+  let newState = {
+    ...state,
+    run: {
+      ...state.run,
+      actionHand: newActionHand,
+      actionDiscard: newActionDiscard,
+      actionCardsUsedThisHand: newActionCardsUsed,
+    },
+  };
+  
+  // Handle specific card effects
+  if (cardId === 'PEEK_HOLE_CARD') {
+    newState = {
+      ...newState,
+      peekedHoleCard: true,
+    };
+  } else if (cardId === 'REDEAL_HAND') {
+    // Redeal player hand - return old cards to shoe first
+    const shoe = [...newState.run.shoe];
+    const oldHand = newState.playerHands[handIndex];
+    // Return old cards to shoe
+    shoe.push(...oldHand.cards);
+    // Shuffle to mix them in
+    const shuffledShoe = shuffleDeck(shoe);
+    // Draw new hand
+    const newPlayerHand = {
+      cards: [drawCard(shuffledShoe)!, drawCard(shuffledShoe)!],
+      isSplit: false,
+      isAceSplit: false,
+    };
+    const newPlayerHands = [...newState.playerHands];
+    newPlayerHands[handIndex] = newPlayerHand;
+    newState = {
+      ...newState,
+      playerHands: newPlayerHands,
+      run: {
+        ...newState.run,
+        shoe: shuffledShoe,
+      },
+    };
+  } else if (cardId === 'SCRAMBLE') {
+    // Shuffle remaining shoe
+    newState = {
+      ...newState,
+      run: {
+        ...newState.run,
+        shoe: shuffleDeck([...newState.run.shoe]),
+      },
+    };
+  } else if (cardId === 'OVERCLOCK') {
+    // Add one extra hit
+    newState = {
+      ...newState,
+      maxHits: newState.maxHits + 1,
+    };
+  } else if (cardId === 'FIREWALL') {
+    // Mark firewall active (will be checked in resolution)
+    // This needs to be tracked in state
+    newState = {
+      ...newState,
+      firewallActive: true,
+    };
+  } else if (cardId === 'DOUBLE_VISION') {
+    // Reveal the next card in the shoe
+    const shoe = [...newState.run.shoe];
+    if (shoe.length > 0) {
+      const nextCard = shoe[0]; // Peek at first card without removing it
+      newState = {
+        ...newState,
+        peekedNextCard: nextCard,
+      };
+    }
+  } else if (cardId === 'EXTRA_HIT') {
+    // Extra hit that doesn't count against limit
+    newState = {
+      ...newState,
+      extraHitAvailable: true,
+    };
+  } else if (cardId === 'INSURANCE') {
+    // Insurance: get bet back if dealer has blackjack
+    newState = {
+      ...newState,
+      insuranceActive: true,
+    };
+  } else if (cardId === 'GLITCH_HIT') {
+    // Next hit draws two cards, choose one
+    newState = {
+      ...newState,
+      glitchHitActive: true,
+    };
+  } else if (cardId === 'SWAP_WITH_DEALER') {
+    // Enable swap mode - player selects their card first, then dealer card
+    newState = {
+      ...newState,
+      swapActive: true,
+      selectedPlayerCardIndex: null, // No card selected yet
+    };
+  }
+  // Note: LOCK_CARD_VALUE, PATCH, DOUBLE_DOWN, TIME_STOP, PERFECT_DRAW, REWIND
+  // are not yet implemented - they require more complex UI/state management
+  
+  return newState;
+}
+
+// Swap: Select player card for swap
+export function selectPlayerCardForSwap(state: GameStateMachine, handIndex: number, cardIndex: number): GameStateMachine {
+  if (!state.swapActive) {
+    return state; // Swap not active
+  }
+  
+  const hand = state.playerHands[handIndex];
+  if (!hand || cardIndex < 0 || cardIndex >= hand.cards.length) {
+    return state; // Invalid card index
+  }
+  
+  return {
+    ...state,
+    selectedPlayerCardIndex: cardIndex,
+  };
+}
+
+// Swap: Execute the swap between player card and dealer upcard
+export function executeSwap(state: GameStateMachine, handIndex: number): GameStateMachine {
+  if (!state.swapActive || state.selectedPlayerCardIndex === null || state.selectedPlayerCardIndex === undefined) {
+    return state; // Swap not ready
+  }
+  
+  const playerHands = [...state.playerHands];
+  const hand = { ...playerHands[handIndex] };
+  const dealerHand = { ...state.dealerHand };
+  
+  // Get the selected player card
+  const playerCard = hand.cards[state.selectedPlayerCardIndex];
+  if (!playerCard) {
+    return state; // Invalid card
+  }
+  
+  // Get dealer upcard (first card)
+  const dealerUpcard = dealerHand.cards[0];
+  if (!dealerUpcard) {
+    return state; // No dealer upcard
+  }
+  
+  // Swap the cards
+  const newPlayerCards = [...hand.cards];
+  newPlayerCards[state.selectedPlayerCardIndex] = dealerUpcard;
+  hand.cards = newPlayerCards;
+  
+  const newDealerCards = [...dealerHand.cards];
+  newDealerCards[0] = playerCard;
+  dealerHand.cards = newDealerCards;
+  
+  playerHands[handIndex] = hand;
+  
+  return {
+    ...state,
+    playerHands: playerHands,
+    dealerHand: dealerHand,
+    swapActive: false, // Clear swap mode
+    selectedPlayerCardIndex: null,
+  };
+}
+
+// Glitch Hit: Choose which card to keep
+export function chooseGlitchHitCard(state: GameStateMachine, cardIndex: number, handIndex: number = 0): GameStateMachine {
+  if (!state.glitchHitCards || cardIndex < 0 || cardIndex > 1) {
+    return state; // Invalid state or index
+  }
+  
+  const playerHands = [...state.playerHands];
+  const hand = { ...playerHands[handIndex] };
+  const chosenCard = state.glitchHitCards[cardIndex];
+  const otherCard = state.glitchHitCards[1 - cardIndex];
+  
+  // Add chosen card to hand
+  hand.cards = [...hand.cards, chosenCard];
+  playerHands[handIndex] = hand;
+  
+  // Return other card to shoe
+  const shoe = [...state.run.shoe];
+  shoe.push(otherCard);
+  
+  // Ace splits allow unlimited hits, so don't increment hit count for them
+  const isAceSplit = hand.isAceSplit;
+  const newHitCount = isAceSplit ? state.hitCount : state.hitCount + 1;
+  
+  const canStandNow = state.currentDealer?.abilities.some(a => a.id === 'FORCED_HIT_UNDER_12')
+    ? getHandValue(hand) >= 12
+    : true;
+  
+  return {
+    ...state,
+    run: {
+      ...state.run,
+      shoe,
+    },
+    playerHands,
+    hitCount: newHitCount,
+    canStand: canStandNow,
+    glitchHitCards: null, // Clear after choice
   };
 }
 

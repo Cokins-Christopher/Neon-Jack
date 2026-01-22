@@ -381,6 +381,26 @@ body {
   animation: bossGlitch 3s infinite;
 }
 
+@keyframes cardSwap {
+  0% {
+    transform: scale(1) rotate(0deg);
+    filter: brightness(1);
+  }
+  50% {
+    transform: scale(1.2) rotate(180deg);
+    filter: brightness(1.5) hue-rotate(90deg);
+    box-shadow: 0 0 30px #ff00ff, 0 0 60px #ff00ff;
+  }
+  100% {
+    transform: scale(1) rotate(360deg);
+    filter: brightness(1);
+  }
+}
+
+.card-swapping {
+  animation: cardSwap 0.6s ease-in-out;
+}
+
 /* Screen container */
 .screen {
   width: 100%;

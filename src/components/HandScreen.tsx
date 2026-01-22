@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
-import { GameStateMachine, playerHit, playerStand, playerSplit, resolveDealerHand } from '../game/stateMachine';
+import { GameStateMachine, playerHit, playerStand, playerSplit, resolveDealerHand, useActionCard, chooseGlitchHitCard, selectPlayerCardForSwap, executeSwap } from '../game/stateMachine';
 import { getHandValue, isBust, canSplit } from '../game/blackjack';
+import { getActionCard } from '../game/actionCards';
 import CardComponent from './CardComponent';
 import './HandScreen.css';
 
@@ -11,7 +12,8 @@ interface HandScreenProps {
 
 export default function HandScreen({ state, onUpdate }: HandScreenProps) {
   const [activeHandIndex, setActiveHandIndex] = useState(0);
-  const [peekedHoleCard, setPeekedHoleCard] = useState(state.peekedHoleCard);
+  // Use state.peekedHoleCard directly instead of local state
+  const peekedHoleCard = state.peekedHoleCard;
 
   const activeHand = state.playerHands[activeHandIndex];
   const activeHandValue = activeHand ? getHandValue(activeHand) : 0;
@@ -27,7 +29,8 @@ export default function HandScreen({ state, onUpdate }: HandScreenProps) {
   const allCardsHidden = state.allCardsHidden ?? state.currentDealer?.abilities.some(a => a.id === 'HIDE_ALL_PLAYER_CARDS') ?? false;
   // Ace splits allow unlimited hits, so ignore maxHits limit for ace splits
   const isAceSplit = activeHand?.isAceSplit ?? false;
-  const canHit = !activeHandBust && (isAceSplit || state.hitCount < state.maxHits);
+  // Can't hit if glitch hit cards are waiting to be chosen or swap is active
+  const canHit = !activeHandBust && !state.glitchHitCards && !state.swapActive && (isAceSplit || state.hitCount < state.maxHits);
   
   // Check if forced hit ability is active
   const hasForcedHitAbility = state.currentDealer?.abilities.some(a => a.id === 'FORCED_HIT_UNDER_12') ?? false;
@@ -125,10 +128,32 @@ export default function HandScreen({ state, onUpdate }: HandScreenProps) {
           <h3 className="section-title">Dealer</h3>
           <div className="hand dealer-hand">
             {dealerUpcard && (
-              <CardComponent 
-                card={dealerUpcard} 
-                hidden={state.dealerUpcardHidden && !peekedHoleCard}
-              />
+              <div
+                onClick={() => {
+                  if (state.swapActive && state.selectedPlayerCardIndex !== null && state.selectedPlayerCardIndex !== undefined) {
+                    onUpdate(executeSwap(state, activeHandIndex));
+                  }
+                }}
+                style={{
+                  cursor: state.swapActive && state.selectedPlayerCardIndex !== null && state.selectedPlayerCardIndex !== undefined
+                    ? 'pointer'
+                    : 'default',
+                  transition: 'transform 0.3s ease, box-shadow 0.3s ease',
+                  transform: state.swapActive && state.selectedPlayerCardIndex !== null && state.selectedPlayerCardIndex !== undefined
+                    ? 'scale(1.1)'
+                    : 'scale(1)',
+                  boxShadow: state.swapActive && state.selectedPlayerCardIndex !== null && state.selectedPlayerCardIndex !== undefined
+                    ? '0 0 20px #ff00ff, 0 0 40px #ff00ff'
+                    : 'none',
+                  borderRadius: '8px',
+                  padding: '5px',
+                }}
+              >
+                <CardComponent 
+                  card={dealerUpcard} 
+                  hidden={state.dealerUpcardHidden && !peekedHoleCard}
+                />
+              </div>
             )}
             {dealerHoleCard && (
               <CardComponent 
@@ -137,6 +162,15 @@ export default function HandScreen({ state, onUpdate }: HandScreenProps) {
               />
             )}
           </div>
+          {state.swapActive && (
+            <div style={{ marginTop: '10px', padding: '10px', background: 'rgba(255, 0, 255, 0.1)', border: '2px solid #ff00ff', borderRadius: '8px' }}>
+              <p style={{ fontSize: '14px', color: '#ff00ff', margin: '0', textAlign: 'center', fontWeight: 'bold' }}>
+                {state.selectedPlayerCardIndex !== null && state.selectedPlayerCardIndex !== undefined
+                  ? '⚡ Click dealer upcard to swap ⚡'
+                  : '⚡ SWAP MODE - Click one of your cards ⚡'}
+              </p>
+            </div>
+          )}
           {state.dealerUpcardHidden && !peekedHoleCard && (
             <p className="info-text">Upcard Hidden</p>
           )}
@@ -146,6 +180,48 @@ export default function HandScreen({ state, onUpdate }: HandScreenProps) {
               <p style={{ fontSize: '12px', color: '#ff0000', margin: '0 0 5px 0', textAlign: 'center' }}>⚡ BURNED CARD ⚡</p>
               <div style={{ display: 'flex', justifyContent: 'center' }}>
                 <CardComponent card={state.lastBurnedCard} hidden={false} />
+              </div>
+            </div>
+          )}
+          {/* Double Vision: Show peeked next card */}
+          {state.peekedNextCard && (
+            <div style={{ marginTop: '15px', padding: '15px', background: 'rgba(0, 255, 255, 0.1)', border: '2px solid #00ffff', borderRadius: '8px' }}>
+              <p style={{ fontSize: '14px', color: '#00ffff', margin: '0 0 10px 0', textAlign: 'center', fontWeight: 'bold' }}>
+                👁️ NEXT CARD (Double Vision)
+              </p>
+              <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '10px' }}>
+                <CardComponent card={state.peekedNextCard} hidden={false} />
+              </div>
+              <p style={{ fontSize: '12px', color: '#00ffff', textAlign: 'center', opacity: 0.8 }}>
+                Hit to take this card, or Stand to skip it
+              </p>
+            </div>
+          )}
+          {/* Glitch Hit: Show two cards to choose from */}
+          {state.glitchHitCards && (
+            <div style={{ marginTop: '15px', padding: '15px', background: 'rgba(255, 0, 255, 0.1)', border: '2px solid #ff00ff', borderRadius: '8px' }}>
+              <p style={{ fontSize: '14px', color: '#ff00ff', margin: '0 0 10px 0', textAlign: 'center', fontWeight: 'bold' }}>
+                ⚡ GLITCH HIT - Choose a Card ⚡
+              </p>
+              <div style={{ display: 'flex', justifyContent: 'center', gap: '20px', marginBottom: '10px' }}>
+                {state.glitchHitCards.map((card, index) => (
+                  <div key={index} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center' }}>
+                    <CardComponent card={card} hidden={false} />
+                    <button
+                      className="btn btn-primary"
+                      onClick={() => onUpdate(chooseGlitchHitCard(state, index, activeHandIndex))}
+                      style={{ 
+                        marginTop: '10px',
+                        fontSize: '12px',
+                        padding: '8px 16px',
+                        background: '#ff00ff',
+                        borderColor: '#ff00ff'
+                      }}
+                    >
+                      Choose This
+                    </button>
+                  </div>
+                ))}
               </div>
             </div>
           )}
@@ -175,13 +251,39 @@ export default function HandScreen({ state, onUpdate }: HandScreenProps) {
                   )}
                 </div>
                 <div className="hand">
-                  {hand.cards.map((card, cardIndex) => (
-                    <CardComponent 
-                      key={card.id} 
-                      card={card} 
-                      hidden={allCardsHidden}
-                    />
-                  ))}
+                  {hand.cards.map((card, cardIndex) => {
+                    const isSelected = state.swapActive && 
+                                      index === activeHandIndex && 
+                                      state.selectedPlayerCardIndex === cardIndex;
+                    return (
+                      <div
+                        key={card.id}
+                        onClick={() => {
+                          if (state.swapActive && index === activeHandIndex) {
+                            onUpdate(selectPlayerCardForSwap(state, index, cardIndex));
+                          }
+                        }}
+                        style={{
+                          cursor: state.swapActive && index === activeHandIndex ? 'pointer' : 'default',
+                          transition: 'transform 0.3s ease, box-shadow 0.3s ease',
+                          transform: isSelected ? 'scale(1.15)' : state.swapActive && index === activeHandIndex ? 'scale(1.05)' : 'scale(1)',
+                          boxShadow: isSelected 
+                            ? '0 0 20px #ff00ff, 0 0 40px #ff00ff, 0 0 60px #ff00ff'
+                            : state.swapActive && index === activeHandIndex
+                            ? '0 0 10px #ff00ff'
+                            : 'none',
+                          borderRadius: '8px',
+                          padding: '5px',
+                          zIndex: isSelected ? 10 : 1,
+                        }}
+                      >
+                        <CardComponent 
+                          card={card} 
+                          hidden={allCardsHidden}
+                        />
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             );
@@ -204,31 +306,47 @@ export default function HandScreen({ state, onUpdate }: HandScreenProps) {
             </div>
           ) : (
             <>
-              <div className="action-buttons">
-                <button 
-                  className="btn btn-primary" 
-                  onClick={handleHit}
-                  disabled={!canHit || allHandsDone}
-                >
-                  Hit
-                </button>
-                <button 
-                  className="btn btn-primary" 
-                  onClick={handleStand}
-                  disabled={!canStandNow || allHandsDone}
-                >
-                  Stand
-                </button>
-                {canSplitHand && (
+              {state.glitchHitCards ? (
+                <div className="glitch-hit-message">
+                  <p className="info-text" style={{ color: '#ff00ff', fontSize: '16px', marginBottom: '10px' }}>
+                    Choose a card from above to continue
+                  </p>
+                </div>
+              ) : state.swapActive ? (
+                <div className="swap-message">
+                  <p className="info-text" style={{ color: '#ff00ff', fontSize: '16px', marginBottom: '10px' }}>
+                    {state.selectedPlayerCardIndex !== null && state.selectedPlayerCardIndex !== undefined
+                      ? 'Click dealer upcard to swap'
+                      : 'Click one of your cards to swap'}
+                  </p>
+                </div>
+              ) : (
+                <div className="action-buttons">
                   <button 
-                    className="btn" 
-                    onClick={handleSplit}
-                    disabled={allHandsDone}
+                    className="btn btn-primary" 
+                    onClick={handleHit}
+                    disabled={!canHit || allHandsDone}
                   >
-                    Split ({state.run.currentBet} chips)
+                    Hit
                   </button>
-                )}
-              </div>
+                  <button 
+                    className="btn btn-primary" 
+                    onClick={handleStand}
+                    disabled={!canStandNow || allHandsDone}
+                  >
+                    Stand
+                  </button>
+                  {canSplitHand && (
+                    <button 
+                      className="btn" 
+                      onClick={handleSplit}
+                      disabled={allHandsDone}
+                    >
+                      Split ({state.run.currentBet} chips)
+                    </button>
+                  )}
+                </div>
+              )}
             </>
           )}
           {state.hitCount >= state.maxHits && !isAceSplit && (
@@ -242,13 +360,61 @@ export default function HandScreen({ state, onUpdate }: HandScreenProps) {
           )}
         </div>
 
-        {/* Action Cards (simplified for MVP) */}
-        {state.run.actionCards.length > 0 && (
+        {/* Action Cards */}
+        {state.run.actionHand.length > 0 && (
           <div className="action-cards-section panel">
-            <h4>Action Cards (MVP: Coming Soon)</h4>
-            <p style={{ opacity: 0.6, fontSize: '12px' }}>
-              Action card system implemented in logic, UI integration pending
-            </p>
+            <div className="action-cards-header">
+              <h4>Action Cards</h4>
+              <div className="action-cards-used">
+                Used: <span style={{ color: state.run.actionCardsUsedThisHand < 2 ? '#00ff00' : '#ff0000' }}>
+                  {state.run.actionCardsUsedThisHand}/2
+                </span>
+              </div>
+            </div>
+            <div className="action-cards-grid">
+              {state.run.actionHand.map((cardId, index) => {
+                const card = getActionCard(cardId);
+                if (!card) return null;
+                
+                const isAfterDeal = card.timing === 'after_deal' && state.playerHands.length > 0 && state.hitCount === 0;
+                const isDuringDecision = card.timing === 'during_decision' && !allHandsDone;
+                const canUse = state.run.actionCardsUsedThisHand < 2;
+                const canUseNow = (isAfterDeal || isDuringDecision) && canUse;
+                
+                return (
+                  <div 
+                    key={`${cardId}-${index}`}
+                    className={`action-card-item ${!canUseNow ? 'disabled' : ''}`}
+                    style={{
+                      borderColor: canUseNow ? '#00ffff' : '#666',
+                      opacity: canUseNow ? 1 : 0.5,
+                    }}
+                  >
+                    <div className="action-card-header">
+                      <div className="action-card-name">{card.name}</div>
+                    </div>
+                    <div className="action-card-description">{card.description}</div>
+                    <button
+                      className="btn btn-primary"
+                      onClick={() => onUpdate(useActionCard(state, cardId, activeHandIndex))}
+                      disabled={!canUseNow}
+                      style={{ 
+                        marginTop: '10px',
+                        fontSize: '12px',
+                        padding: '8px 16px'
+                      }}
+                    >
+                      Use
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+            {state.run.actionHand.length === 0 && (
+              <p style={{ textAlign: 'center', opacity: 0.6, fontSize: '12px', padding: '20px' }}>
+                No action cards in hand. Draw more from your deck next hand.
+              </p>
+            )}
           </div>
         )}
       </div>

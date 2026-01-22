@@ -96,10 +96,72 @@
 
 .action-cards-section {
   margin-top: 20px;
-  opacity: 0.7;
 }
 
-.action-cards-section h4 {
-  margin-bottom: 10px;
+.action-cards-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 15px;
+}
+
+.action-cards-header h4 {
+  margin: 0;
+  font-size: 18px;
+  color: #00ffff;
+}
+
+.action-cards-used {
+  font-size: 14px;
+  color: #00ffff;
+  font-weight: bold;
+}
+
+.action-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 15px;
+}
+
+.action-card-item {
+  background: rgba(0, 255, 255, 0.05);
+  border: 2px solid;
+  border-radius: 8px;
+  padding: 15px;
+  transition: all 0.3s;
+}
+
+.action-card-item:hover:not(.disabled) {
+  background: rgba(0, 255, 255, 0.1);
+  transform: translateY(-2px);
+  box-shadow: 0 4px 15px rgba(0, 255, 255, 0.3);
+}
+
+.action-card-item.disabled {
+  cursor: not-allowed;
+}
+
+.action-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.action-card-name {
   font-size: 16px;
+  font-weight: bold;
+  color: #00ffff;
+}
+
+.action-card-energy {
+  font-size: 12px;
+  font-weight: bold;
+}
+
+.action-card-description {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.8);
+  line-height: 1.4;
+  margin-bottom: 10px;
 }

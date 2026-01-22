@@ -1,5 +1,6 @@
 import { GameStateMachine } from '../game/stateMachine';
 import { Card } from '../types';
+import { getActionCard } from '../game/actionCards';
 import CardComponent from './CardComponent';
 import './DeckViewer.css';
 
@@ -10,6 +11,12 @@ interface DeckViewerProps {
 
 export default function DeckViewer({ state, onClose }: DeckViewerProps) {
   const shoe = state.run.shoe;
+  
+  // Count action cards in deck
+  const actionCardCounts: Record<string, number> = {};
+  state.run.actionDeck.forEach(cardId => {
+    actionCardCounts[cardId] = (actionCardCounts[cardId] || 0) + 1;
+  });
   
   // Count cards by rank (separate glitch cards)
   const cardCounts: Record<string, number> = {};
@@ -119,6 +126,50 @@ export default function DeckViewer({ state, onClose }: DeckViewerProps) {
             </div>
           </div>
         )}
+        
+        {/* Action Deck Section */}
+        <div className="action-deck-section">
+          <h3 className="section-title">Action Deck</h3>
+          <div className="stat" style={{ marginBottom: '15px' }}>
+            <div className="stat-label">Total Action Cards</div>
+            <div className="stat-value">{state.run.actionDeck.length}</div>
+          </div>
+          {Object.keys(actionCardCounts).length === 0 ? (
+            <p style={{ textAlign: 'center', opacity: 0.7, padding: '20px' }}>
+              No action cards in deck yet.
+            </p>
+          ) : (
+            <div className="action-cards-list">
+              {Object.entries(actionCardCounts)
+                .sort(([a], [b]) => {
+                  const cardA = getActionCard(a);
+                  const cardB = getActionCard(b);
+                  if (!cardA || !cardB) return 0;
+                  return cardA.name.localeCompare(cardB.name);
+                })
+                .map(([cardId, count]) => {
+                  const card = getActionCard(cardId);
+                  if (!card) return null;
+                  return (
+                    <div key={cardId} className="action-card-entry">
+                      <div className="action-card-info">
+                        <div className="action-card-name">{card.name}</div>
+                        <div className="action-card-description">{card.description}</div>
+                        <div className="action-card-count" style={{ 
+                          color: '#00ffff', 
+                          marginTop: '5px',
+                          fontSize: '14px',
+                          fontWeight: 'bold'
+                        }}>
+                          {count} {count === 1 ? 'copy' : 'copies'}
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

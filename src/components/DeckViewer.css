@@ -123,3 +123,43 @@
 .deck-viewer-panel::-webkit-scrollbar-thumb:hover {
   background: rgba(0, 255, 255, 0.7);
 }
+
+.action-deck-section {
+  margin-top: 30px;
+  padding-top: 20px;
+  border-top: 2px solid rgba(0, 255, 255, 0.3);
+}
+
+.action-cards-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 15px;
+}
+
+.action-card-entry {
+  background: rgba(0, 255, 255, 0.05);
+  border: 2px solid rgba(0, 255, 255, 0.3);
+  border-radius: 8px;
+  padding: 15px;
+  transition: all 0.3s;
+}
+
+.action-card-entry:hover {
+  background: rgba(0, 255, 255, 0.1);
+  border-color: rgba(0, 255, 255, 0.5);
+  transform: translateX(5px);
+}
+
+.action-card-name {
+  font-size: 16px;
+  font-weight: bold;
+  color: #00ffff;
+  margin-bottom: 5px;
+}
+
+.action-card-description {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.8);
+  line-height: 1.4;
+}

@@ -32,10 +32,20 @@ export interface GameRun {
   score: number;
   currentBet: number;
   shoe: Card[];
-  shoeHacks: ShoeHack[];
-  actionCards: ActionCard[];
+  shoeHacks: ShoeHack[]; // Legacy - kept for backward compatibility
+  actionCards: ActionCard[]; // Legacy - kept for backward compatibility
   usedActionCardsThisHand: Set<string>;
   config: RunConfig; // Phase 2: Run configuration
+  // Roguelike Shop System
+  seed: number; // Seeded RNG for deterministic shop generation
+  shopIndex: number; // Increments each shop visit
+  shop: ShopState; // Current shop inventory
+  ownedShoeHacks: Record<string, { stacks: number }>; // Owned hacks with stack count
+  actionDeck: string[]; // Action cards owned (duplicates allowed)
+  actionHand: string[]; // Cards drawn for current hand
+  actionDiscard: string[]; // Discard pile
+  actionDrawCount: number; // Cards drawn per hand (default 3)
+  actionCardsUsedThisHand: number; // Count of action cards used this hand (max 2)
 }
 
 // Phase 2: Ability hook system (additive, non-breaking)
@@ -80,17 +90,36 @@ export interface ActionCard {
   description: string;
   timing: 'before_deal' | 'after_deal' | 'during_decision' | 'after_reveal';
   cost: number; // 0 = once per hand, >0 = chip cost
+  baseCost: number; // Shop cost
+  rarity: Rarity;
+  energyCost?: number; // Energy cost to play (default 1)
   effect: (context: HandContext) => Promise<void> | void;
-  used: boolean;
+  used?: boolean; // Legacy support
+}
+
+// Roguelike Shop System: Rarity and Shop Items
+export type Rarity = 'COMMON' | 'UNCOMMON' | 'RARE' | 'BOSS';
+
+export type ShopItem =
+  | { kind: 'SHOE_HACK'; id: string; cost: number; rarity: Rarity }
+  | { kind: 'ACTION_CARD'; id: string; cost: number; rarity: Rarity }
+  | { kind: 'REROLL_SHOP'; cost: number }
+  | { kind: 'REMOVE_ACTION_CARD'; cost: number };
+
+export interface ShopState {
+  items: ShopItem[];
+  rerollsUsed: number;
 }
 
 export interface ShoeHack {
   id: string;
   name: string;
-  description: string;
-  cost: number;
-  effect: (shoe: Card[]) => Card[];
-  purchased: boolean;
+  description: string | ((stacks: number) => string);
+  baseCost: number;
+  rarity: Rarity;
+  maxStacks: number;
+  effect: (shoe: Card[], stacks: number) => Card[];
+  purchased?: boolean; // Legacy support
 }
 
 export type HandResult = 'win' | 'loss' | 'push' | 'blackjack_win';
